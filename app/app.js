@@ -297,5 +297,6 @@ async function deleteVideo() {
     await getVideos();
   } catch (error) {
     alert(`Error: ${error.message}`);
+    
   }
 }

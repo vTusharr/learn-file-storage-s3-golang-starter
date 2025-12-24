@@ -1,8 +1,11 @@
 package main
 
 import (
-	"fmt"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -15,16 +18,50 @@ func (cfg *apiConfig) handlerThumbnailGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tn, ok := videoThumbnails[videoID]
-	if !ok {
+	entries, err := os.ReadDir(cfg.assetsRoot)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error reading assets directory", err)
+		return
+	}
+
+	prefix := videoID.String() + "."
+	var foundPath string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, prefix) {
+			foundPath = filepath.Join(cfg.assetsRoot, name)
+			break
+		}
+	}
+
+	if foundPath == "" {
 		respondWithError(w, http.StatusNotFound, "Thumbnail not found", nil)
 		return
 	}
 
-	w.Header().Set("Content-Type", tn.mediaType)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(tn.data)))
+	data, err := os.ReadFile(foundPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			respondWithError(w, http.StatusNotFound, "Thumbnail not found", nil)
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Error reading thumbnail", err)
+		return
+	}
 
-	_, err = w.Write(tn.data)
+	ext := filepath.Ext(foundPath)
+	contentType := mime.TypeByExtension(ext)
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+
+	_, err = w.Write(data)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error writing response", err)
 		return
